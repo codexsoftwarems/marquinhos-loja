@@ -1091,10 +1091,21 @@ function abrirLoginCliente(){
       </div>
     </div>`);
 }
-function fazerLogin(){
+async function fazerLogin(){
   const email=document.getElementById('logEmail').value;
   const senha=document.getElementById('logSenha').value;
   if(!email||!senha){ toast('Preencha e-mail e senha'); return; }
+  if(NUVEM){
+    try{
+      const { data, error } = await sb.auth.signInWithPassword({ email:email.trim(), password:senha });
+      if(error) throw error;
+      const u=data.user, md=(u&&u.user_metadata)||{};
+      usuario = { nome: md.nome||u.email.split('@')[0], email:u.email, tel: md.tel||'' };
+      fecharModal(); render(); toast('Bem-vindo de volta, '+usuario.nome.split(' ')[0]+'! 👋', true);
+      if(paginaAtual==='checkout') renderConteudo();
+    }catch(e){ toast('E-mail ou senha incorretos'); console.warn(e); }
+    return;
+  }
   const contas = DB.get('contas', {});
   if(contas[email] && contas[email].senha===senha){
     usuario = { nome:contas[email].nome, email, tel:contas[email].tel };
@@ -1103,12 +1114,28 @@ function fazerLogin(){
     if(paginaAtual==='checkout') renderConteudo();
   } else { toast('E-mail ou senha incorretos'); }
 }
-function fazerCadastro(){
+async function fazerCadastro(){
   const nome=document.getElementById('logNome').value;
   const email=document.getElementById('logEmail').value;
   const senha=document.getElementById('logSenha').value;
   const tel=document.getElementById('logTel').value;
   if(!nome||!email||!senha){ toast('Preencha todos os campos'); return; }
+  if(NUVEM){
+    if(senha.length<6){ toast('A senha precisa ter pelo menos 6 caracteres'); return; }
+    try{
+      const { data, error } = await sb.auth.signUp({ email:email.trim(), password:senha, options:{ data:{ nome, tel } } });
+      if(error) throw error;
+      if(data && data.session){
+        usuario = { nome, email:email.trim(), tel };
+        fecharModal(); render(); toast('Conta criada com sucesso! 🎉', true);
+        if(paginaAtual==='checkout') renderConteudo();
+      } else {
+        toast('Conta criada! Confirme pelo e-mail para entrar.');
+        loginMode='login'; abrirLoginCliente();
+      }
+    }catch(e){ toast('Erro ao cadastrar: '+(e.message||'')); console.warn(e); }
+    return;
+  }
   const contas = DB.get('contas', {});
   if(contas[email]){ toast('E-mail já cadastrado'); return; }
   contas[email] = { nome, senha, tel };
@@ -1118,7 +1145,16 @@ function fazerCadastro(){
   fecharModal(); render(); toast('Conta criada com sucesso! 🎉', true);
   if(paginaAtual==='checkout') renderConteudo();
 }
-function logout(){ usuario=null; DB.set('usuario',null); render(); toast('Você saiu da conta'); }
+async function logout(){
+  usuario=null;
+  if(NUVEM){ try{ await sb.auth.signOut(); }catch(e){} papelAtual=null; vendedorLogado=false; }
+  else { DB.set('usuario',null); }
+  render(); toast('Você saiu da conta');
+}
+async function restaurarSessaoCliente(){
+  if(!NUVEM) return;
+  try{ const { data } = await sb.auth.getUser(); if(data && data.user){ const md=data.user.user_metadata||{}; usuario={ nome: md.nome||data.user.email.split('@')[0], email:data.user.email, tel: md.tel||'' }; } }catch(e){}
+}
 
 /* ========== CONTA DO CLIENTE ========== */
 let contaTab='perfil';
@@ -1157,12 +1193,16 @@ function renderConta(){
     `:''}
   </div>`;
 }
-function salvarPerfil(){
+async function salvarPerfil(){
   usuario.nome = document.getElementById('perfNome').value;
   usuario.tel = document.getElementById('perfTel').value;
-  DB.set('usuario', usuario);
-  const contas = DB.get('contas',{});
-  if(contas[usuario.email]){ contas[usuario.email].nome=usuario.nome; contas[usuario.email].tel=usuario.tel; DB.set('contas',contas); }
+  if(NUVEM){
+    try{ await sb.auth.updateUser({ data:{ nome:usuario.nome, tel:usuario.tel } }); }catch(e){ console.warn(e); }
+  } else {
+    DB.set('usuario', usuario);
+    const contas = DB.get('contas',{});
+    if(contas[usuario.email]){ contas[usuario.email].nome=usuario.nome; contas[usuario.email].tel=usuario.tel; DB.set('contas',contas); }
+  }
   render(); toast('Perfil atualizado!', true);
 }
 
@@ -1447,6 +1487,7 @@ document.getElementById('waFloat').target = '_blank';
 (async function(){
   render();                          // mostra a loja já com os dados locais
   if(NUVEM){
+    await restaurarSessaoCliente();
     await restaurarSessaoVendedor();
     await carregarProdutosNuvem();
     render();                        // re-renderiza com os dados da nuvem
