@@ -1096,17 +1096,34 @@ function salvarPerfil(){
 }
 
 /* ========== LOGIN VENDEDOR ========== */
+let vendMode='login';
 function abrirLoginVendedor(){
   if(vendedorLogado){ irPara('vendedor'); return; }
+  if(!NUVEM){
+    abrirModal(`
+    <button class="modal-close" onclick="fecharModal()">✕</button>
+    <div class="modal-body">
+      <h2>🔐 Painel do Vendedor</h2>
+      <p class="sub">Área restrita. Digite a senha de acesso.</p>
+      <div class="field"><label>Senha</label><input type="password" id="vendSenha" placeholder="••••••••" onkeypress="if(event.key==='Enter')loginVendedor()"></div>
+      <button class="btn-full" onclick="loginVendedor()">Acessar painel</button>
+      <p style="font-size:.75rem;color:var(--cinza);text-align:center;margin-top:1rem">Senha padrão: marquinhos123</p>
+    </div>`);
+    return;
+  }
+  const cad = vendMode==='cadastro';
   abrirModal(`
     <button class="modal-close" onclick="fecharModal()">✕</button>
     <div class="modal-body">
       <h2>🔐 Painel do Vendedor</h2>
-      <p class="sub">Área restrita.${NUVEM?' Entre com seu e-mail e senha de administrador.':' Digite a senha de acesso.'}</p>
-      ${NUVEM?`<div class="field"><label>E-mail</label><input type="email" id="vendEmail" placeholder="voce@email.com" onkeypress="if(event.key==='Enter')loginVendedor()"></div>`:''}
-      <div class="field"><label>Senha</label><input type="password" id="vendSenha" placeholder="••••••••" onkeypress="if(event.key==='Enter')loginVendedor()"></div>
-      <button class="btn-full" onclick="loginVendedor()">Acessar painel</button>
-      ${NUVEM?'':`<p style="font-size:.75rem;color:var(--cinza);text-align:center;margin-top:1rem">Senha padrão: marquinhos123</p>`}
+      <p class="sub">${cad?'Crie sua conta de administrador.':'Entre com seu e-mail e senha de administrador.'}</p>
+      <div class="field"><label>E-mail</label><input type="email" id="vendEmail" placeholder="voce@email.com"></div>
+      <div class="field"><label>Senha</label><input type="password" id="vendSenha" placeholder="••••••••" onkeypress="if(event.key==='Enter')${cad?'cadastrarVendedor':'loginVendedor'}()"></div>
+      <button class="btn-full" onclick="${cad?'cadastrarVendedor':'loginVendedor'}()">${cad?'Criar conta':'Acessar painel'}</button>
+      <p style="font-size:.82rem;color:var(--cinza);text-align:center;margin-top:1rem">
+        ${cad?`Já tem conta? <a style="color:var(--amarelo);cursor:pointer" onclick="vendMode='login';abrirLoginVendedor()">Entrar</a>`
+             :`Primeira vez? <a style="color:var(--amarelo);cursor:pointer" onclick="vendMode='cadastro';abrirLoginVendedor()">Cadastrar vendedor</a>`}
+      </p>
     </div>`);
 }
 async function loginVendedor(){
@@ -1124,6 +1141,22 @@ async function loginVendedor(){
   const s = document.getElementById('vendSenha').value;
   if(s===SENHA_VENDEDOR){ vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true); }
   else toast('Senha incorreta');
+}
+async function cadastrarVendedor(){
+  const email=(document.getElementById('vendEmail')||{}).value;
+  const s=document.getElementById('vendSenha').value;
+  if(!email||!s){ toast('Preencha e-mail e senha'); return; }
+  if(s.length<6){ toast('A senha precisa ter pelo menos 6 caracteres'); return; }
+  try{
+    const { data, error } = await sb.auth.signUp({ email:email.trim(), password:s });
+    if(error) throw error;
+    if(data && data.session){
+      vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Conta criada! Bem-vindo 🔧', true);
+    } else {
+      toast('Conta criada! Confirme pelo e-mail e depois faça login.');
+      vendMode='login'; abrirLoginVendedor();
+    }
+  }catch(e){ toast('Erro ao cadastrar: '+(e.message||'')); console.warn(e); }
 }
 async function sairVendedor(){
   vendedorLogado=false;
