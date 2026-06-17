@@ -379,7 +379,7 @@ let pedidos = DB.get('pedidos', []);
 let usuario = DB.get('usuario', null);
 let cupomAplicado = null;
 let vendedorLogado = false;
-let isAdminAtual = false;
+let papelAtual = null; // 'admin' | 'vendedor' | null
 let filtroCategoria = 'Todos';
 let ordenacao = 'destaque';
 let busca = '';
@@ -405,7 +405,7 @@ async function carregarProdutosNuvem(){
 }
 async function restaurarSessaoVendedor(){
   if(!NUVEM) return;
-  try{ const { data } = await sb.auth.getSession(); if(data && data.session){ isAdminAtual = await checarAdmin(); vendedorLogado = isAdminAtual; } }catch(e){}
+  try{ const { data } = await sb.auth.getSession(); if(data && data.session){ papelAtual = await checarPapel(); vendedorLogado = !!papelAtual; } }catch(e){}
 }
 async function uploadFotoNuvem(file){
   const ext = ((file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'')) || 'jpg';
@@ -432,50 +432,74 @@ async function sincronizarNuvem(){
     toast('Produtos sincronizados com a nuvem! ☁️', true);
   }catch(e){ toast('Erro ao sincronizar: '+(e.message||'')); console.warn(e); }
 }
-async function checarAdmin(){
-  if(!NUVEM) return false;
+async function checarPapel(){
+  if(!NUVEM) return null;
   try{
     const { data: u } = await sb.auth.getUser();
     const email = u && u.user ? u.user.email : null;
-    if(!email) return false;
-    const { data, error } = await sb.from('admins').select('email').eq('email', email).limit(1);
+    if(!email) return null;
+    const { data, error } = await sb.from('equipe').select('papel').eq('email', email).limit(1);
     if(error) throw error;
-    return !!(data && data.length);
-  }catch(e){ console.warn('[nuvem] checarAdmin:', e.message||e); return false; }
+    return (data && data.length) ? data[0].papel : null;
+  }catch(e){ console.warn('[nuvem] checarPapel:', e.message||e); return null; }
 }
-async function carregarListaAdmins(){
-  const box = document.getElementById('listaAdmins'); if(!box) return;
+async function carregarEquipe(){
+  const box = document.getElementById('listaEquipe'); if(!box) return;
   try{
-    const { data, error } = await sb.from('admins').select('email,criado_em').order('criado_em');
+    const { data, error } = await sb.from('equipe').select('email,papel,criado_em').order('criado_em');
     if(error) throw error;
-    box.innerHTML = `<table class="admin-table" style="max-width:520px"><thead><tr><th>E-mail autorizado</th><th>Ações</th></tr></thead><tbody>${(data||[]).map(a=>`<tr><td>${a.email}</td><td><button class="btn-mini btn-del" onclick="removerAdmin('${a.email}')">🗑️</button></td></tr>`).join('')||'<tr><td colspan="2" style="color:var(--cinza)">Nenhum admin cadastrado</td></tr>'}</tbody></table>`;
-  }catch(e){ box.innerHTML = '<p style="color:var(--vermelho)">Erro ao carregar lista de admins</p>'; console.warn(e); }
+    box.innerHTML = `<table class="admin-table" style="max-width:640px"><thead><tr><th>E-mail</th><th>Papel</th><th>Ações</th></tr></thead><tbody>${(data||[]).map(a=>{
+      const ehAdmin = a.papel==='admin';
+      return `<tr><td>${a.email}</td>
+        <td><span style="color:${ehAdmin?'var(--amarelo)':'var(--branco)'};font-weight:${ehAdmin?'700':'400'}">${ehAdmin?'👑 Administrador':'Vendedor'}</span></td>
+        <td>
+          ${ehAdmin?`<button class="btn-mini btn-edit" onclick="mudarPapel('${a.email}','vendedor')">↓ Tornar vendedor</button>`:`<button class="btn-mini btn-edit" onclick="mudarPapel('${a.email}','admin')">👑 Tornar admin</button>`}
+          <button class="btn-mini btn-del" onclick="removerVendedor('${a.email}')">🗑️</button>
+        </td></tr>`;
+    }).join('')||'<tr><td colspan="3" style="color:var(--cinza)">Nenhum membro cadastrado</td></tr>'}</tbody></table>`;
+  }catch(e){ box.innerHTML = '<p style="color:var(--vermelho)">Erro ao carregar a equipe</p>'; console.warn(e); }
 }
-async function adicionarAdmin(){
-  const el = document.getElementById('novoAdminEmail'); const email = el ? el.value.trim().toLowerCase() : '';
+async function criarVendedor(){
+  const elE = document.getElementById('novoVendEmail'); const elS = document.getElementById('novoVendSenha');
+  const email = elE ? elE.value.trim().toLowerCase() : ''; const senha = elS ? elS.value : '';
   if(!email || !email.includes('@')){ toast('Digite um e-mail válido'); return; }
+  if(senha.length < 6){ toast('A senha precisa ter pelo menos 6 caracteres'); return; }
   try{
-    const { error } = await sb.from('admins').insert({ email });
-    if(error) throw error;
-    toast('Vendedor autorizado!', true); if(el) el.value=''; carregarListaAdmins();
-  }catch(e){ toast('Erro ao autorizar: '+(e.message||'')); console.warn(e); }
+    // cria a conta de login sem desconectar o admin (cliente temporário)
+    const tmp = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:false, autoRefreshToken:false, storageKey:'sb-temp-'+Date.now() } });
+    const { error: eSign } = await tmp.auth.signUp({ email, password: senha });
+    if(eSign && !/already|registered|exists/i.test(eSign.message||'')) throw eSign;
+    // autoriza no painel
+    const { error } = await sb.from('equipe').insert({ email, papel:'vendedor' });
+    if(error && !/duplicate|already exists/i.test(error.message||'')) throw error;
+    toast('Vendedor cadastrado!', true);
+    if(elE) elE.value=''; if(elS) elS.value=''; carregarEquipe();
+  }catch(e){ toast('Erro ao cadastrar vendedor: '+(e.message||'')); console.warn(e); }
 }
-async function removerAdmin(email){
-  if(!confirm('Remover a autorização de '+email+'?')) return;
+async function mudarPapel(email, papel){
   try{
-    const { error } = await sb.from('admins').delete().eq('email', email);
+    const { error } = await sb.from('equipe').update({ papel }).eq('email', email);
     if(error) throw error;
-    toast('Autorização removida'); carregarListaAdmins();
+    toast(papel==='admin'?'Agora é administrador 👑':'Agora é vendedor', true); carregarEquipe();
+  }catch(e){ toast('Erro: '+(e.message||'')); console.warn(e); }
+}
+async function removerVendedor(email){
+  if(!confirm('Remover o acesso de '+email+'? (a pessoa não poderá mais entrar no painel)')) return;
+  try{
+    const { error } = await sb.from('equipe').delete().eq('email', email);
+    if(error) throw error;
+    toast('Acesso removido'); carregarEquipe();
   }catch(e){ toast('Erro ao remover: '+(e.message||'')); console.warn(e); }
 }
-function renderAdminAdmins(){
+function renderEquipe(){
   return `
-    <p style="color:var(--cinza);margin-bottom:1rem;font-size:.9rem;max-width:640px">Qualquer pessoa pode criar uma conta, mas só os e-mails autorizados abaixo conseguem entrar no painel e editar a loja. Para liberar um novo vendedor, peça o e-mail que ele usou no cadastro e adicione aqui.</p>
-    <div style="display:flex;gap:.5rem;max-width:520px;margin-bottom:1.2rem">
-      <input type="email" id="novoAdminEmail" placeholder="email@exemplo.com" style="flex:1;padding:.7rem .9rem;background:var(--card);border:1px solid var(--borda);border-radius:10px;color:var(--branco)" onkeypress="if(event.key==='Enter')adicionarAdmin()">
-      <button class="btn-add-prod" style="margin-bottom:0;white-space:nowrap" onclick="adicionarAdmin()">➕ Autorizar</button>
+    <p style="color:var(--cinza);margin-bottom:1rem;font-size:.9rem;max-width:680px">Cadastre os vendedores que poderão entrar no painel e gerenciar a loja. Só o administrador vê esta aba. Você pode tornar um vendedor administrador (ele passa a poder cadastrar outros) ou remover o acesso.</p>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;max-width:680px;margin-bottom:1.2rem">
+      <input type="email" id="novoVendEmail" placeholder="email do vendedor" style="flex:1;min-width:200px;padding:.7rem .9rem;background:var(--card);border:1px solid var(--borda);border-radius:10px;color:var(--branco)">
+      <input type="password" id="novoVendSenha" placeholder="senha (mín. 6)" style="flex:1;min-width:160px;padding:.7rem .9rem;background:var(--card);border:1px solid var(--borda);border-radius:10px;color:var(--branco)" onkeypress="if(event.key==='Enter')criarVendedor()">
+      <button class="btn-add-prod" style="margin-bottom:0;white-space:nowrap" onclick="criarVendedor()">➕ Cadastrar vendedor</button>
     </div>
-    <div id="listaAdmins">Carregando...</div>
+    <div id="listaEquipe">Carregando...</div>
   `;
 }
 
@@ -1143,7 +1167,6 @@ function salvarPerfil(){
 }
 
 /* ========== LOGIN VENDEDOR ========== */
-let vendMode='login';
 function abrirLoginVendedor(){
   if(vendedorLogado){ irPara('vendedor'); return; }
   if(!NUVEM){
@@ -1158,19 +1181,14 @@ function abrirLoginVendedor(){
     </div>`);
     return;
   }
-  const cad = vendMode==='cadastro';
   abrirModal(`
     <button class="modal-close" onclick="fecharModal()">✕</button>
     <div class="modal-body">
       <h2>🔐 Painel do Vendedor</h2>
-      <p class="sub">${cad?'Crie sua conta de administrador.':'Entre com seu e-mail e senha de administrador.'}</p>
+      <p class="sub">Área restrita à equipe. Entre com o e-mail e senha cadastrados pelo administrador.</p>
       <div class="field"><label>E-mail</label><input type="email" id="vendEmail" placeholder="voce@email.com"></div>
-      <div class="field"><label>Senha</label><input type="password" id="vendSenha" placeholder="••••••••" onkeypress="if(event.key==='Enter')${cad?'cadastrarVendedor':'loginVendedor'}()"></div>
-      <button class="btn-full" onclick="${cad?'cadastrarVendedor':'loginVendedor'}()">${cad?'Criar conta':'Acessar painel'}</button>
-      <p style="font-size:.82rem;color:var(--cinza);text-align:center;margin-top:1rem">
-        ${cad?`Já tem conta? <a style="color:var(--amarelo);cursor:pointer" onclick="vendMode='login';abrirLoginVendedor()">Entrar</a>`
-             :`Primeira vez? <a style="color:var(--amarelo);cursor:pointer" onclick="vendMode='cadastro';abrirLoginVendedor()">Cadastrar vendedor</a>`}
-      </p>
+      <div class="field"><label>Senha</label><input type="password" id="vendSenha" placeholder="••••••••" onkeypress="if(event.key==='Enter')loginVendedor()"></div>
+      <button class="btn-full" onclick="loginVendedor()">Acessar painel</button>
     </div>`);
 }
 async function loginVendedor(){
@@ -1181,8 +1199,8 @@ async function loginVendedor(){
     try{
       const { error } = await sb.auth.signInWithPassword({ email:email.trim(), password:s });
       if(error) throw error;
-      isAdminAtual = await checarAdmin();
-      if(!isAdminAtual){ await sb.auth.signOut(); toast('Sua conta não tem permissão de administrador. Peça autorização ao dono da loja.'); return; }
+      papelAtual = await checarPapel();
+      if(!papelAtual){ await sb.auth.signOut(); toast('Esta conta não tem acesso ao painel. Peça ao administrador para cadastrá-la.'); return; }
       vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true);
     }catch(e){ toast('E-mail ou senha incorretos'); console.warn(e); }
     return;
@@ -1191,26 +1209,8 @@ async function loginVendedor(){
   if(s===SENHA_VENDEDOR){ vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true); }
   else toast('Senha incorreta');
 }
-async function cadastrarVendedor(){
-  const email=(document.getElementById('vendEmail')||{}).value;
-  const s=document.getElementById('vendSenha').value;
-  if(!email||!s){ toast('Preencha e-mail e senha'); return; }
-  if(s.length<6){ toast('A senha precisa ter pelo menos 6 caracteres'); return; }
-  try{
-    const { data, error } = await sb.auth.signUp({ email:email.trim(), password:s });
-    if(error) throw error;
-    if(data && data.session){
-      isAdminAtual = await checarAdmin();
-      if(!isAdminAtual){ await sb.auth.signOut(); vendedorLogado=false; toast('Conta criada! Aguarde o dono da loja autorizar seu acesso de administrador.'); vendMode='login'; abrirLoginVendedor(); return; }
-      vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Conta criada! Bem-vindo 🔧', true);
-    } else {
-      toast('Conta criada! Confirme pelo e-mail e depois faça login.');
-      vendMode='login'; abrirLoginVendedor();
-    }
-  }catch(e){ toast('Erro ao cadastrar: '+(e.message||'')); console.warn(e); }
-}
 async function sairVendedor(){
-  vendedorLogado=false;
+  vendedorLogado=false; papelAtual=null;
   if(NUVEM){ try{ await sb.auth.signOut(); }catch(e){} }
   irPara('home');
 }
@@ -1227,13 +1227,13 @@ function renderVendedor(){
       <button class="tab ${vendTab==='produtos'?'active':''}" onclick="vendTab='produtos';renderConteudo()">📦 Produtos</button>
       <button class="tab ${vendTab==='cupons'?'active':''}" onclick="vendTab='cupons';renderConteudo()">🎟️ Cupons</button>
       <button class="tab ${vendTab==='pedidos'?'active':''}" onclick="vendTab='pedidos';renderConteudo()">🛒 Pedidos (${pedidos.length})</button>
-      ${NUVEM?`<button class="tab ${vendTab==='vendedores'?'active':''}" onclick="vendTab='vendedores';renderConteudo();carregarListaAdmins()">👤 Vendedores</button>`:''}
+      ${NUVEM&&papelAtual==='admin'?`<button class="tab ${vendTab==='vendedores'?'active':''}" onclick="vendTab='vendedores';renderConteudo();carregarEquipe()">👤 Equipe</button>`:''}
     </div>
     ${vendTab==='dashboard'?renderDashboard():''}
     ${vendTab==='produtos'?renderAdminProdutos():''}
     ${vendTab==='cupons'?renderAdminCupons():''}
     ${vendTab==='pedidos'?renderAdminPedidos():''}
-    ${vendTab==='vendedores'?renderAdminAdmins():''}
+    ${vendTab==='vendedores'&&papelAtual==='admin'?renderEquipe():''}
   </div>`;
 }
 
