@@ -63,8 +63,10 @@ header{background:var(--preto2);border-bottom:1px solid var(--borda);position:st
 .page{max-width:1280px;margin:0 auto;padding:1.5rem;min-height:60vh}
 
 /* HERO */
-.hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:2rem;background:linear-gradient(90deg,#0a0a0a 45%,rgba(10,10,10,0.7) 75%,rgba(10,10,10,0.2) 100%),url('assets/hero-bg.jpg') no-repeat right center;background-size:cover;border:1px solid var(--borda)}
-.hero-content{padding:3.5rem 3rem;max-width:600px;position:relative;z-index:2}
+.hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:2rem;background:linear-gradient(135deg,#141414,#0a0a0a);border:1px solid var(--borda);display:flex;align-items:center;justify-content:space-between;gap:2rem}
+.hero-content{padding:3.5rem 0 3.5rem 3rem;max-width:600px;flex:1.2;position:relative;z-index:2}
+.hero-image{flex:0.8;display:flex;justify-content:flex-end;align-items:center;padding:2rem 3rem 2rem 0}
+.hero-image img{max-width:100%;max-height:260px;object-fit:contain;border-radius:10px}
 .hero-badge{display:inline-block;background:rgba(255,209,26,.15);border:1px solid var(--amarelo);color:var(--amarelo);padding:.3rem .9rem;border-radius:20px;font-size:.75rem;font-weight:700;letter-spacing:1px;margin-bottom:1rem}
 .hero h1{font-size:2.8rem;font-weight:900;line-height:1.1;margin-bottom:1rem}
 .hero h1 span{color:var(--amarelo)}
@@ -282,11 +284,12 @@ footer{background:var(--preto2);border-top:1px solid var(--borda);margin-top:3re
   .pd-grid{grid-template-columns:1fr}
   .footer-inner{grid-template-columns:1fr 1fr}
   .hero h1{font-size:2rem}
-  .hero-content{padding:2.5rem 1.5rem}
-  .hero{background:linear-gradient(90deg,rgba(10,10,10,0.92) 50%,rgba(10,10,10,0.7) 100%),url('assets/hero-bg.jpg') no-repeat right center;background-size:cover}
+  .hero{flex-direction:column;text-align:center;gap:1rem}
+  .hero-content{padding:2.5rem 2rem 1rem 2rem;max-width:100%}
+  .hero-image{padding:0 2rem 2.5rem 2rem;justify-content:center;width:100%}
+  .hero-image img{max-height:200px}
 }
 @media(max-width:600px){
-  .hero{background:linear-gradient(180deg,rgba(10,10,10,0.85) 0%,rgba(10,10,10,0.95) 100%),url('assets/hero-bg.jpg') no-repeat center center;background-size:cover}
   .header-inner{flex-wrap:wrap;gap:.8rem}
   .search-bar{order:3;max-width:100%;flex-basis:100%}
   .field-row{grid-template-columns:1fr}
@@ -507,12 +510,14 @@ function renderHome(){
   return `
   <div class="page">
     <div class="hero">
-      <!-- Imagem de fundo configurada no CSS -->
       <div class="hero-content">
         <span class="hero-badge">🔥 PEÇAS E ACESSÓRIOS</span>
         <h1>Tudo para sua <span>moto</span> em um só lugar</h1>
         <p>Escapamentos, faróis, acessórios e muito mais. Qualidade garantida e entrega rápida em Campo Grande.</p>
         <button class="btn-primary" onclick="irPara('catalogo')">Ver produtos 🛒</button>
+      </div>
+      <div class="hero-image">
+        <img src="assets/hero-bg.jpg" alt="Marquinhos Parts">
       </div>
     </div>
 
