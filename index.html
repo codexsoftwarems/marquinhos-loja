@@ -1238,9 +1238,13 @@ async function loginVendedor(){
     if(!email||!s){ toast('Preencha e-mail e senha'); return; }
     try{
       const { error } = await sb.auth.signInWithPassword({ email:email.trim(), password:s });
-      if(error) throw error;
+      if(error){
+        // primeiro acesso: cria a conta automaticamente (sem verificação)
+        const { data: su, error: errSU } = await sb.auth.signUp({ email:email.trim(), password:s });
+        if(errSU || !(su && su.session)){ toast('E-mail ou senha incorretos'); console.warn('signin:', error, 'signup:', errSU); return; }
+      }
       papelAtual = await checarPapel();
-      if(!papelAtual){ await sb.auth.signOut(); toast('Esta conta não tem acesso ao painel. Peça ao administrador para cadastrá-la.'); return; }
+      if(!papelAtual){ await sb.auth.signOut(); toast('Esta conta não tem acesso ao painel. Rode o SQL da equipe ou peça ao administrador para cadastrá-la.'); return; }
       vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true);
     }catch(e){ toast('E-mail ou senha incorretos'); console.warn(e); }
     return;
