@@ -1239,14 +1239,28 @@ async function loginVendedor(){
     try{
       const { error } = await sb.auth.signInWithPassword({ email:email.trim(), password:s });
       if(error){
-        // primeiro acesso: cria a conta automaticamente (sem verificação)
+        const msg = (error.message||'').toLowerCase();
+        // conta existe mas e-mail não confirmado
+        if(msg.includes('email not confirmed')){
+          toast('Desative "Confirm email" no Supabase → Authentication → Providers → Email'); return;
+        }
+        // conta já existe mas senha errada
+        if(msg.includes('invalid login') || msg.includes('invalid credentials')){
+          toast('Senha incorreta para este e-mail'); console.warn('signin:', error.message); return;
+        }
+        // conta não existe ainda — cria automaticamente (primeiro acesso)
         const { data: su, error: errSU } = await sb.auth.signUp({ email:email.trim(), password:s });
-        if(errSU || !(su && su.session)){ toast('E-mail ou senha incorretos'); console.warn('signin:', error, 'signup:', errSU); return; }
+        if(errSU){
+          toast('Erro: ' + errSU.message); console.warn('signup:', errSU.message); return;
+        }
+        if(!(su && su.session)){
+          toast('Confirme o e-mail antes de acessar, ou desative "Confirm email" no Supabase'); return;
+        }
       }
       papelAtual = await checarPapel();
-      if(!papelAtual){ await sb.auth.signOut(); toast('Esta conta não tem acesso ao painel. Rode o SQL da equipe ou peça ao administrador para cadastrá-la.'); return; }
+      if(!papelAtual){ await sb.auth.signOut(); toast('Conta não cadastrada na equipe. Peça ao admin para adicioná-la na tabela equipe.'); return; }
       vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true);
-    }catch(e){ toast('E-mail ou senha incorretos'); console.warn(e); }
+    }catch(e){ toast('Erro: ' + (e.message||e)); console.warn(e); }
     return;
   }
   const s = document.getElementById('vendSenha').value;
