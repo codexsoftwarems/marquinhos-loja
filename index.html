@@ -379,6 +379,7 @@ let pedidos = DB.get('pedidos', []);
 let usuario = DB.get('usuario', null);
 let cupomAplicado = null;
 let vendedorLogado = false;
+let isAdminAtual = false;
 let filtroCategoria = 'Todos';
 let ordenacao = 'destaque';
 let busca = '';
@@ -404,7 +405,7 @@ async function carregarProdutosNuvem(){
 }
 async function restaurarSessaoVendedor(){
   if(!NUVEM) return;
-  try{ const { data } = await sb.auth.getSession(); if(data && data.session) vendedorLogado = true; }catch(e){}
+  try{ const { data } = await sb.auth.getSession(); if(data && data.session){ isAdminAtual = await checarAdmin(); vendedorLogado = isAdminAtual; } }catch(e){}
 }
 async function uploadFotoNuvem(file){
   const ext = ((file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'')) || 'jpg';
@@ -430,6 +431,52 @@ async function sincronizarNuvem(){
     if(error) throw error;
     toast('Produtos sincronizados com a nuvem! ☁️', true);
   }catch(e){ toast('Erro ao sincronizar: '+(e.message||'')); console.warn(e); }
+}
+async function checarAdmin(){
+  if(!NUVEM) return false;
+  try{
+    const { data: u } = await sb.auth.getUser();
+    const email = u && u.user ? u.user.email : null;
+    if(!email) return false;
+    const { data, error } = await sb.from('admins').select('email').eq('email', email).limit(1);
+    if(error) throw error;
+    return !!(data && data.length);
+  }catch(e){ console.warn('[nuvem] checarAdmin:', e.message||e); return false; }
+}
+async function carregarListaAdmins(){
+  const box = document.getElementById('listaAdmins'); if(!box) return;
+  try{
+    const { data, error } = await sb.from('admins').select('email,criado_em').order('criado_em');
+    if(error) throw error;
+    box.innerHTML = `<table class="admin-table" style="max-width:520px"><thead><tr><th>E-mail autorizado</th><th>Ações</th></tr></thead><tbody>${(data||[]).map(a=>`<tr><td>${a.email}</td><td><button class="btn-mini btn-del" onclick="removerAdmin('${a.email}')">🗑️</button></td></tr>`).join('')||'<tr><td colspan="2" style="color:var(--cinza)">Nenhum admin cadastrado</td></tr>'}</tbody></table>`;
+  }catch(e){ box.innerHTML = '<p style="color:var(--vermelho)">Erro ao carregar lista de admins</p>'; console.warn(e); }
+}
+async function adicionarAdmin(){
+  const el = document.getElementById('novoAdminEmail'); const email = el ? el.value.trim().toLowerCase() : '';
+  if(!email || !email.includes('@')){ toast('Digite um e-mail válido'); return; }
+  try{
+    const { error } = await sb.from('admins').insert({ email });
+    if(error) throw error;
+    toast('Vendedor autorizado!', true); if(el) el.value=''; carregarListaAdmins();
+  }catch(e){ toast('Erro ao autorizar: '+(e.message||'')); console.warn(e); }
+}
+async function removerAdmin(email){
+  if(!confirm('Remover a autorização de '+email+'?')) return;
+  try{
+    const { error } = await sb.from('admins').delete().eq('email', email);
+    if(error) throw error;
+    toast('Autorização removida'); carregarListaAdmins();
+  }catch(e){ toast('Erro ao remover: '+(e.message||'')); console.warn(e); }
+}
+function renderAdminAdmins(){
+  return `
+    <p style="color:var(--cinza);margin-bottom:1rem;font-size:.9rem;max-width:640px">Qualquer pessoa pode criar uma conta, mas só os e-mails autorizados abaixo conseguem entrar no painel e editar a loja. Para liberar um novo vendedor, peça o e-mail que ele usou no cadastro e adicione aqui.</p>
+    <div style="display:flex;gap:.5rem;max-width:520px;margin-bottom:1.2rem">
+      <input type="email" id="novoAdminEmail" placeholder="email@exemplo.com" style="flex:1;padding:.7rem .9rem;background:var(--card);border:1px solid var(--borda);border-radius:10px;color:var(--branco)" onkeypress="if(event.key==='Enter')adicionarAdmin()">
+      <button class="btn-add-prod" style="margin-bottom:0;white-space:nowrap" onclick="adicionarAdmin()">➕ Autorizar</button>
+    </div>
+    <div id="listaAdmins">Carregando...</div>
+  `;
 }
 
 function money(v){ return 'R$ ' + Number(v).toFixed(2).replace('.', ','); }
@@ -1134,6 +1181,8 @@ async function loginVendedor(){
     try{
       const { error } = await sb.auth.signInWithPassword({ email:email.trim(), password:s });
       if(error) throw error;
+      isAdminAtual = await checarAdmin();
+      if(!isAdminAtual){ await sb.auth.signOut(); toast('Sua conta não tem permissão de administrador. Peça autorização ao dono da loja.'); return; }
       vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true);
     }catch(e){ toast('E-mail ou senha incorretos'); console.warn(e); }
     return;
@@ -1151,6 +1200,8 @@ async function cadastrarVendedor(){
     const { data, error } = await sb.auth.signUp({ email:email.trim(), password:s });
     if(error) throw error;
     if(data && data.session){
+      isAdminAtual = await checarAdmin();
+      if(!isAdminAtual){ await sb.auth.signOut(); vendedorLogado=false; toast('Conta criada! Aguarde o dono da loja autorizar seu acesso de administrador.'); vendMode='login'; abrirLoginVendedor(); return; }
       vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Conta criada! Bem-vindo 🔧', true);
     } else {
       toast('Conta criada! Confirme pelo e-mail e depois faça login.');
@@ -1176,11 +1227,13 @@ function renderVendedor(){
       <button class="tab ${vendTab==='produtos'?'active':''}" onclick="vendTab='produtos';renderConteudo()">📦 Produtos</button>
       <button class="tab ${vendTab==='cupons'?'active':''}" onclick="vendTab='cupons';renderConteudo()">🎟️ Cupons</button>
       <button class="tab ${vendTab==='pedidos'?'active':''}" onclick="vendTab='pedidos';renderConteudo()">🛒 Pedidos (${pedidos.length})</button>
+      ${NUVEM?`<button class="tab ${vendTab==='vendedores'?'active':''}" onclick="vendTab='vendedores';renderConteudo();carregarListaAdmins()">👤 Vendedores</button>`:''}
     </div>
     ${vendTab==='dashboard'?renderDashboard():''}
     ${vendTab==='produtos'?renderAdminProdutos():''}
     ${vendTab==='cupons'?renderAdminCupons():''}
     ${vendTab==='pedidos'?renderAdminPedidos():''}
+    ${vendTab==='vendedores'?renderAdminAdmins():''}
   </div>`;
 }
 
