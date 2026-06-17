@@ -404,6 +404,8 @@ async function carregarProdutosNuvem(){
   }catch(e){ console.warn('[nuvem] erro ao carregar produtos:', e.message||e); }
 }
 async function restaurarSessaoVendedor(){
+  // Admin fixo — persiste via sessionStorage
+  if(sessionStorage.getItem('adm_sess')==='1'){ papelAtual='admin'; vendedorLogado=true; return; }
   if(!NUVEM) return;
   try{ const { data } = await sb.auth.getSession(); if(data && data.session){ papelAtual = await checarPapel(); vendedorLogado = !!papelAtual; } }catch(e){}
 }
@@ -1236,29 +1238,16 @@ async function loginVendedor(){
     const email = (document.getElementById('vendEmail')||{}).value;
     const s = document.getElementById('vendSenha').value;
     if(!email||!s){ toast('Preencha e-mail e senha'); return; }
+    // Admin fixo — sem Supabase Auth
+    if(email.trim()==='edicunhabr@gmail.com' && s==='123456'){
+      sessionStorage.setItem('adm_sess','1');
+      papelAtual='admin'; vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo, Admin! 🔧', true); return;
+    }
     try{
       const { error } = await sb.auth.signInWithPassword({ email:email.trim(), password:s });
-      if(error){
-        const msg = (error.message||'').toLowerCase();
-        // conta existe mas e-mail não confirmado
-        if(msg.includes('email not confirmed')){
-          toast('Desative "Confirm email" no Supabase → Authentication → Providers → Email'); return;
-        }
-        // conta já existe mas senha errada
-        if(msg.includes('invalid login') || msg.includes('invalid credentials')){
-          toast('Senha incorreta para este e-mail'); console.warn('signin:', error.message); return;
-        }
-        // conta não existe ainda — cria automaticamente (primeiro acesso)
-        const { data: su, error: errSU } = await sb.auth.signUp({ email:email.trim(), password:s });
-        if(errSU){
-          toast('Erro: ' + errSU.message); console.warn('signup:', errSU.message); return;
-        }
-        if(!(su && su.session)){
-          toast('Confirme o e-mail antes de acessar, ou desative "Confirm email" no Supabase'); return;
-        }
-      }
+      if(error){ toast('E-mail ou senha incorretos'); return; }
       papelAtual = await checarPapel();
-      if(!papelAtual){ await sb.auth.signOut(); toast('Conta não cadastrada na equipe. Peça ao admin para adicioná-la na tabela equipe.'); return; }
+      if(!papelAtual){ await sb.auth.signOut(); toast('Conta não cadastrada na equipe.'); return; }
       vendedorLogado=true; fecharModal(); irPara('vendedor'); toast('Bem-vindo ao painel! 🔧', true);
     }catch(e){ toast('Erro: ' + (e.message||e)); console.warn(e); }
     return;
@@ -1269,6 +1258,7 @@ async function loginVendedor(){
 }
 async function sairVendedor(){
   vendedorLogado=false; papelAtual=null;
+  sessionStorage.removeItem('adm_sess');
   if(NUVEM){ try{ await sb.auth.signOut(); }catch(e){} }
   irPara('home');
 }
