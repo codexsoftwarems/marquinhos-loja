@@ -326,8 +326,8 @@ const SENHA_VENDEDOR = 'marquinhos123';
 
 /* ===== NUVEM (Supabase: banco de dados + fotos visíveis em todos os aparelhos) ===== */
 /* >>> PREENCHA com os dados do seu projeto Supabase (Settings > API) <<< */
-const SUPABASE_URL = 'COLE_A_URL_AQUI';            // ex.: https://abcd1234.supabase.co
-const SUPABASE_ANON_KEY = 'COLE_A_ANON_KEY_AQUI';  // chave "anon public"
+const SUPABASE_URL = 'https://tkqjeslwjzdckkpamskk.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_ysxu8GlA8qD9MYD4Qwmnug_SDFnJ6Tg'; // chave pública (publishable)
 const BUCKET_FOTOS = 'fotos';
 const NUVEM = /^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 20 && !!(window.supabase);
 const sb = NUVEM ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
